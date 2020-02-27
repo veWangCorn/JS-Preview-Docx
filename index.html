@@ -5,37 +5,83 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
     <title>Document</title>
-    <!-- <script src="mammoth.browser.min.js"></script> -->
-    <script src="http://gildas-lormeau.github.io/zip.js/demos/zip.js"></script>
-    <script src="http://gildas-lormeau.github.io/zip.js/demos/mime-types.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.9/mammoth.browser.min.js"></script>
     <script src="http://apps.bdimg.com/libs/jquery/1.9.0/jquery.js"></script>
-    <script src="http://files.cnblogs.com/files/diligenceday/UnZipArchive.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.2.2/jszip.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.2.2/jszip.min.js"></script>
 </head>
 <body>
-    <input type="file" id="file">
+    <input type="file" id="file" onchange="parseWordDocxFile(this)">
     <h1>文件内容：</h1>
-    <!-- <div id="content"/> -->
-    <ul id="dir"></ul>
+    <div id="result"></div>
 
     <script>
-      $("#file").change(function (e) {
-        var file = this.files[0];
-        window.un = new UnZipArchive( file );
-        un.getData( function() {
-            //获取所以的文件和文件夹列表;
-            var arr = un.getEntries();
-            //拼接字符串
-            var str = "";
-            for(var i=0; i<arr.length; i++ ) {
-                //点击li的话直接下载文件;
-                str += "<li onclick=download('"+arr[i]+"')>"+arr[i]+"</li>"
-            };
-            $("#dir").html( str );
+      var $file = document.getElementById('file')
+      var $result = document.getElementById('result')
+
+      function parseWordDocxFile(inputElement) {
+        var files = inputElement.files || [];
+        if (!files.length) return;
+        var file = files[0];
+        handleFile(file)
+      }
+
+      function handleFile(file){
+        JSZip.loadAsync($file.files[0])                                   // 1) read the Blob
+        .then(function(zip) {
+          let standalone
+          zip.forEach(function (relativePath, zipEntry){
+            if(zipEntry.name==='docProps/core.xml'){
+              zip.file(relativePath).async("string").then(function (data) {
+                let parser=new DOMParser();
+                xmlDoc=parser.parseFromString(data,"text/xml");
+                standalone = xmlDoc.getElementsByTagName("cp:coreProperties")[0].getAttribute("xmlns:dcmitype")
+                if(standalone){
+                  parseStandFile(file)
+                } else {
+                  parsePOIFile(file)
+                }
+              })
+            }
+          })
+        })
+      }
+
+      function parseStandFile(file){
+          var reader = new FileReader();
+          reader.onloadend = function(event) {
+            var arrayBuffer = reader.result;
+      
+            mammoth.extractRawText({arrayBuffer: arrayBuffer}).then(function (resultObject) {
+              $result.innerHTML = resultObject.value
+              console.log(resultObject.value)
+            })
+          };
+          reader.readAsArrayBuffer(file);
+      }
+
+      function parsePOIFile(file){
+        JSZip.loadAsync(file)                              
+        .then(function(zip) {
+          var str = ''
+          zip.forEach(function (relativePath, zipEntry) { 
+              if(zipEntry.name==='word/document.xml'){
+                   zip.file(relativePath).async("string").then(function (data) {
+                  data.match(/<w:t>[\s\S]*?<\/w:t>/ig).forEach((item)=>{
+                      str += item.slice(5,-6)
+                    });
+                    str = str.slice(9,str.length-3)
+                    $result.innerHTML = str
+                });
+              }
+            });
+        }, function (e) {
+            $result.append($("<div>", {
+                "class" : "alert alert-danger",
+                text : "Error reading " + file.name + ": " + e.message
+            }));
         });
-    });
-    var download = function ( filename ) {
-        un.download( filename );
-    };
+      }
     </script>
 </body>
 </html>
